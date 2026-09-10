@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>NCERT Interactive Quiz Bank</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+
+  <!-- Auth Screen -->
+  <div id="auth-screen" class="min-h-screen flex items-center justify-center p-4">
+    <form id="auth-form" class="bg-white p-8 rounded-xl shadow-md max-w-sm w-full space-y-4 border border-slate-200">
+      <h2 id="auth-title" class="text-xl font-bold text-slate-800">Sign In to NCERT Portal</h2>
+      <p id="auth-error" class="text-sm text-rose-600 hidden"></p>
+
+      <input id="name-field" type="text" placeholder="Full Name" class="w-full border border-slate-200 p-2.5 rounded-lg hidden" />
+      <input id="email-field" type="email" placeholder="Email Address" class="w-full border border-slate-200 p-2.5 rounded-lg" required />
+      <input id="password-field" type="password" placeholder="Password (min 8 characters)" class="w-full border border-slate-200 p-2.5 rounded-lg" required minlength="8" />
+
+      <button type="submit" id="auth-submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition">
+        Log In
+      </button>
+      <p id="auth-toggle" class="text-sm text-center text-slate-500 cursor-pointer hover:text-blue-600">
+        Need an account? Register
+      </p>
+    </form>
+  </div>
+
+  <!-- Quiz App (hidden until logged in) -->
+  <div id="app-screen" class="hidden">
+    <nav class="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm">
+      <h1 class="font-bold text-lg text-blue-600 tracking-wide">NCERT Interactive Quiz Bank</h1>
+      <button id="logout-btn" class="text-sm text-rose-500 font-semibold hover:underline">Log Out</button>
+    </nav>
+
+    <main class="max-w-4xl mx-auto p-6 space-y-6">
+
+      <!-- Cascade Selectors -->
+      <section class="bg-white p-6 rounded-xl border border-slate-200 grid grid-cols-1 md:grid-cols-4 gap-4 shadow-sm">
+        <select id="class-select" class="border border-slate-200 p-2.5 rounded-lg">
+          <option value="">Select Class</option>
+        </select>
+        <select id="subject-select" class="border border-slate-200 p-2.5 rounded-lg" disabled>
+          <option value="">Select Subject</option>
+        </select>
+        <select id="chapter-select" class="border border-slate-200 p-2.5 rounded-lg" disabled>
+          <option value="">Select Chapter</option>
+        </select>
+        <button id="start-quiz-btn" disabled class="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-medium rounded-lg p-2.5 transition">
+          Start Quiz
+        </button>
+      </section>
+
+      <!-- Quiz Questions -->
+      <section id="quiz-section" class="bg-white p-6 rounded-xl border border-slate-200 space-y-6 hidden">
+        <h3 id="quiz-chapter-title" class="font-semibold text-lg"></h3>
+        <div id="questions-list" class="space-y-4"></div>
+        <button id="submit-quiz-btn" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-6 rounded-lg transition">
+          Submit Answers
+        </button>
+      </section>
+
+      <!-- Scorecard -->
+      <section id="result-section" class="bg-white p-6 rounded-xl border border-slate-200 space-y-6 hidden">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+          <h3 class="font-bold text-xl">Score Report</h3>
+          <span id="score-display" class="text-2xl font-black text-blue-600"></span>
+        </div>
+        <div id="result-list" class="space-y-4"></div>
+      </section>
+
+    </main>
+  </div>
+
+  <script>
+    const API_BASE = '/api';
+
+    // ---- State ----
+    let token = localStorage.getItem('token') || '';
+    let isRegistering = false;
+    let selectedClass = '', selectedSubject = '', selectedChapter = '';
+    let currentQuestions = [];
+    let answers = {};
+
+    // ---- Elements ----
+    const authScreen = document.getElementById('auth-screen');
+    const appScreen = document.getElementById('app-screen');
+    const authForm = document.getElementById('auth-form');
+    const authTitle = document.getElementById('auth-title');
+    const authError = document.getElementById('auth-error');
+    const authToggle = document.getElementById('auth-toggle');
+    const authSubmit = document.getElementById('auth-submit');
+    const nameField = document.getElementById('name-field');
+    const emailField = document.getElementById('email-field');
+    const passwordField = document.getElementById('password-field');
+
+    const classSelect = document.getElementById('class-select');
+    const subjectSelect = document.getElementById('subject-select');
+    const chapterSelect = document.getElementById('chapter-select');
+    const startQuizBtn = document.getElementById('start-quiz-btn');
+
+    const quizSection = document.getElementById('quiz-section');
+    const quizChapterTitle = document.getElementById('quiz-chapter-title');
+    const questionsList = document.getElementById('questions-list');
+    const submitQuizBtn = document.getElementById('submit-quiz-btn');
+
+    const resultSection = document.getElementById('result-section');
+    const scoreDisplay = document.getElementById('score-display');
+    const resultList = document.getElementById('result-list');
+
+    // ---- Auth screen toggle (login vs register) ----
+    authToggle.addEventListener('click', () => {
+      isRegistering = !isRegistering;
+      authTitle.textContent = isRegistering ? 'Register Student' : 'Sign In to NCERT Portal';
+      authSubmit.textContent = isRegistering ? 'Sign Up' : 'Log In';
+      authToggle.textContent = isRegistering ? 'Already have an account? Sign in' : 'Need an account? Register';
+      nameField.classList.toggle('hidden', !isRegistering);
+      nameField.required = isRegistering;
+      authError.classList.add('hidden');
+    });
+
+    authForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      authError.classList.add('hidden');
+      const endpoint = isRegistering ? '/register' : '/login';
+      const body = isRegistering
+        ? { name: nameField.value, email: emailField.value, password: passwordField.value }
+        : { email: emailField.value, password: passwordField.value };
+
+      try {
+        const res = await fetch(`${API_BASE}${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          authError.textContent = data.error || 'Something went wrong.';
+          authError.classList.remove('hidden');
+          return;
+        }
+
+        if (isRegistering) {
+          authError.textContent = 'Registration complete — please sign in.';
+          authError.classList.remove('hidden', 'text-rose-600');
+          authError.classList.add('text-emerald-600');
+          isRegistering = false;
+          authToggle.click();
+          authToggle.click(); // reset to login mode
+        } else {
+          token = data.token;
+          localStorage.setItem('token', token);
+          showApp();
+        }
+      } catch (err) {
+        authError.textContent = 'Could not reach the server. Please try again.';
+        authError.classList.remove('hidden');
+      }
+    });
+
+    document.getElementById('logout-btn').addEventListener('click', () => {
+      localStorage.removeItem('token');
+      token = '';
+      location.reload();
+    });
+
+    // ---- Authenticated fetch helper ----
+    async function authFetch(url, options = {}) {
+      const res = await fetch(url, {
+        ...options,
+        headers: {
+          ...(options.headers || {}),
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem('token');
+        token = '';
+        location.reload();
+        throw new Error('Session expired');
+      }
+      return res;
+    }
+
+    // ---- Show quiz app after login ----
+    async function showApp() {
+      authScreen.classList.add('hidden');
+      appScreen.classList.remove('hidden');
+      const res = await authFetch(`${API_BASE}/classes`);
+      const classes = await res.json();
+      classSelect.innerHTML = '<option value="">Select Class</option>' +
+        classes.map(c => `<option value="${c}">${c}</option>`).join('');
+    }
+
+    classSelect.addEventListener('change', async () => {
+      selectedClass = classSelect.value;
+      subjectSelect.innerHTML = '<option value="">Select Subject</option>';
+      chapterSelect.innerHTML = '<option value="">Select Chapter</option>';
+      subjectSelect.disabled = !selectedClass;
+      chapterSelect.disabled = true;
+      startQuizBtn.disabled = true;
+      if (!selectedClass) return;
+
+      const res = await authFetch(`${API_BASE}/subjects?className=${encodeURIComponent(selectedClass)}`);
+      const subjects = await res.json();
+      subjectSelect.innerHTML = '<option value="">Select Subject</option>' +
+        subjects.map(s => `<option value="${s}">${s}</option>`).join('');
+    });
+
+    subjectSelect.addEventListener('change', async () => {
+      selectedSubject = subjectSelect.value;
+      chapterSelect.innerHTML = '<option value="">Select Chapter</option>';
+      chapterSelect.disabled = !selectedSubject;
+      startQuizBtn.disabled = true;
+      if (!selectedSubject) return;
+
+      const res = await authFetch(`${API_BASE}/chapters?className=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(selectedSubject)}`);
+      const chapters = await res.json();
+      chapterSelect.innerHTML = '<option value="">Select Chapter</option>' +
+        chapters.map(c => `<option value="${c}">${c}</option>`).join('');
+    });
+
+    chapterSelect.addEventListener('change', () => {
+      selectedChapter = chapterSelect.value;
+      startQuizBtn.disabled = !selectedChapter;
+    });
+
+    startQuizBtn.addEventListener('click', async () => {
+      resultSection.classList.add('hidden');
+      answers = {};
+      const res = await authFetch(
+        `${API_BASE}/questions?className=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(selectedSubject)}&chapter=${encodeURIComponent(selectedChapter)}`
+      );
+      currentQuestions = await res.json();
+      renderQuiz();
+    });
+
+    function renderQuiz() {
+      quizChapterTitle.textContent = `${selectedChapter} - Questions`;
+      questionsList.innerHTML = currentQuestions.map((q, idx) => `
+        <div class="space-y-2 border-b border-slate-100 pb-4 last:border-0">
+          <p class="font-medium text-slate-900">${idx + 1}. ${q.question}</p>
+          <div class="grid grid-cols-1 gap-2 pt-1">
+            ${q.options.map((opt, optIdx) => `
+              <label class="flex items-center gap-2 text-sm bg-slate-50 p-2.5 rounded-lg border border-slate-200 cursor-pointer hover:bg-blue-50">
+                <input type="radio" name="q-${q.id}" value="${optIdx}" class="answer-radio" data-qid="${q.id}" />
+                ${opt}
+              </label>
+            `).join('')}
+          </div>
+        </div>
+      `).join('');
+
+      document.querySelectorAll('.answer-radio').forEach(radio => {
+        radio.addEventListener('change', (e) => {
+          answers[e.target.dataset.qid] = parseInt(e.target.value, 10);
+        });
+      });
+
+      quizSection.classList.remove('hidden');
+    }
+
+    submitQuizBtn.addEventListener('click', async () => {
+      const res = await authFetch(`${API_BASE}/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          className: selectedClass,
+          subject: selectedSubject,
+          chapter: selectedChapter,
+          responses: answers,
+        }),
+      });
+      const data = await res.json();
+      renderResult(data);
+    });
+
+    function renderResult(result) {
+      quizSection.classList.add('hidden');
+      resultSection.classList.remove('hidden');
+      scoreDisplay.textContent = `${result.score} / ${result.total}`;
+
+      resultList.innerHTML = result.results.map((r, idx) => {
+        const q = currentQuestions[idx];
+        const userAnswerText = r.userAnswer !== null ? q.options[r.userAnswer] : 'Skipped';
+        const correctAnswerText = q.options[r.correctAnswer];
+        return `
+          <div class="p-4 rounded-lg border ${r.isCorrect ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}">
+            <p class="font-semibold">${idx + 1}. ${r.question}</p>
+            <p class="text-sm mt-1">Your Answer: <span class="font-medium">${userAnswerText}</span></p>
+            ${!r.isCorrect ? `<p class="text-sm text-emerald-700 mt-0.5">Correct Answer: <span class="font-medium">${correctAnswerText}</span></p>` : ''}
+            <p class="text-xs text-slate-500 mt-2">Explanation: ${r.explanation}</p>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // ---- On load ----
+    if (token) {
+      showApp().catch(() => {
+        localStorage.removeItem('token');
+        token = '';
+      });
+    }
+  </script>
+</body>
+</html>
